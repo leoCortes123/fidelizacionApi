@@ -1,0 +1,20 @@
+{
+  "name": "fidelizacion-api",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Backend de fidelización sobre Supabase: esquema, RPC, RLS, migraciones y pruebas SQL.",
+  "type": "module",
+  "scripts": {
+    "db:start": "npx supabase start",
+    "db:stop": "npx supabase stop",
+    "db:reset": "npx supabase db reset",
+    "db:push": "npx supabase db push",
+    "db:diff": "npx supabase db diff",
+    "db:status": "npx supabase status",
+    "test": "bash scripts/test-db.sh",
+    "test:db": "bash scripts/test-db.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

@@ -1,0 +1,52 @@
+# Configuración mínima para `supabase start`.
+# Ajusta site_url y las redirect URLs al dominio real antes de desplegar.
+project_id = "fidelizacion-api"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:5173"
+additional_redirect_urls = [
+  "http://127.0.0.1:5173/**",
+  "http://localhost:5173/**"
+]
+jwt_expiry = 3600
+enable_signup = true
+
+[auth.external.google]
+# Completa estas credenciales en local o en el panel de Supabase.
+# No guardes secretos reales en el repositorio.
+enabled = false
+client_id = ""
+secret = ""
+redirect_uri = "http://127.0.0.1:54321/auth/v1/callback"
+skip_nonce_check = true
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
