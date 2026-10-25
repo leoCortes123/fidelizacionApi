@@ -52,6 +52,12 @@ echo "== Datos iniciales =="
 echo "== Pruebas de integración =="
 "${PSQL[@]}" < tests/db/run-tests.sql
 
+echo "== Pruebas Fase 0 (multiempresa, roles, QR y acumulación) =="
+"${PSQL[@]}" < tests/db/loyalty-phase0-tests.sql
+
+echo "== Pruebas de aceptación Fase 7 (20 casos) =="
+"${PSQL[@]}" < tests/db/loyalty-tests.sql
+
 echo "== Prueba de concurrencia: dos reclamos simultáneos =="
 "${PSQL[@]}" <<'SQL'
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -138,4 +144,125 @@ if [[ "$CLAIMED" != "1" || "$LEDGER" != "1" ]]; then
 fi
 
 echo "PASS: solo un reclamo ganó y se acreditó una sola vez"
+
+echo "== Prueba de concurrencia: dos aprobaciones simultáneas =="
+"${PSQL[@]}" <<'SQL'
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('30000000-0000-4000-8000-000000000001', 'concurrencia-dueno@example.test', '{"full_name":"Dueño Concurrencia"}'),
+  ('30000000-0000-4000-8000-000000000002', 'concurrencia-encargado@example.test', '{"full_name":"Encargado Concurrencia"}'),
+  ('30000000-0000-4000-8000-000000000003', 'concurrencia-cliente@example.test', '{"full_name":"Cliente Concurrencia"}');
+SQL
+
+CONCURRENCY_SETUP="$("${PSQL[@]}" -tA <<'SQL'
+set role authenticated;
+select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000001', false);
+select r->>'business_id' as biz
+  from (
+    select public.business_register('Concurrencia QR', 'concurrencia-redencion') as r
+  ) s \gset
+select public.business_membership_create(
+  :'biz'::uuid, '30000000-0000-4000-8000-000000000002', 'encargado', true
+);
+select public.loyalty_program_configure(
+  :'biz'::uuid, 1000, 100, 365, 0.01, 0, 0, 0, 24, true
+);
+select r->>'id' as reward
+  from (
+    select public.loyalty_reward_upsert(
+      :'biz'::uuid, 'fixed_discount', 'Canje concurrencia', 1,
+      null, null, '', 2000, 1000
+    ) as r
+  ) s \gset
+select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000003', false);
+select public.business_join('concurrencia-redencion');
+select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000001', false);
+select public.loyalty_purchase_register(
+  :'biz'::uuid, '30000000-0000-4000-8000-000000000003', 100000, 100000, 'concurrencia-compra-0001'
+);
+select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000003', false);
+select r->>'redemption_id' as redemption
+  from (
+    select public.reward_request_redemption(
+      :'biz'::uuid, :'reward'::uuid, 'concurrencia-canje-0001'
+    ) as r
+  ) s \gset
+\echo :biz :redemption
+SQL
+)"
+
+read -r CONC_BIZ CONC_REDEMPTION <<<"$(echo "$CONCURRENCY_SETUP" | tail -n1)"
+if [[ -z "$CONC_BIZ" || -z "$CONC_REDEMPTION" ]]; then
+  echo "No se pudo preparar la concurrencia de aprobaciones" >&2
+  echo "$CONCURRENCY_SETUP" >&2
+  exit 1
+fi
+
+A_LOG="$TMP_DIR/approve-a.log"
+B_LOG="$TMP_DIR/approve-b.log"
+
+(
+  docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+    set role authenticated;
+    select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000002', false);
+    begin;
+    select public.redemption_approve('$CONC_BIZ'::uuid, '$CONC_REDEMPTION'::uuid, true);
+    select pg_sleep(2);
+    commit;
+  " >"$A_LOG" 2>&1
+) &
+A_PID=$!
+
+sleep 0.7
+
+set +e
+docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+  set role authenticated;
+  select set_config('request.jwt.claim.sub', '30000000-0000-4000-8000-000000000002', false);
+  select public.redemption_approve('$CONC_BIZ'::uuid, '$CONC_REDEMPTION'::uuid, true);
+" >"$B_LOG" 2>&1
+B_STATUS=$?
+set -e
+
+wait "$A_PID"
+A_STATUS=$?
+
+if [[ $A_STATUS -ne 0 ]]; then
+  echo "La primera aprobación debía ganar, pero falló:" >&2
+  cat "$A_LOG" >&2
+  exit 1
+fi
+
+if [[ $B_STATUS -eq 0 ]]; then
+  echo "La segunda aprobación debía fallar, pero triunfó:" >&2
+  cat "$B_LOG" >&2
+  exit 1
+fi
+
+if ! grep -q "redemption_not_pending" "$B_LOG"; then
+  echo "La segunda aprobación falló con un error inesperado:" >&2
+  cat "$B_LOG" >&2
+  exit 1
+fi
+
+APPROVAL_RESULT="$("${PSQL[@]}" -tA -c "
+  select r.status::text || '|' ||
+         (select count(*) from public.business_audit_logs
+           where business_id = r.business_id
+             and operation = 'redemption.approved'
+             and entity_id = r.id::text) || '|' ||
+         (select count(*) from public.loyalty_redemption_tokens
+           where redemption_id = r.id and consumed_at is not null) || '|' ||
+         (select balance from public.loyalty_point_accounts
+           where business_id = r.business_id
+             and customer_id = '30000000-0000-4000-8000-000000000003')
+    from public.loyalty_redemptions r
+   where r.id = '$CONC_REDEMPTION'::uuid;
+")"
+
+if [[ "$APPROVAL_RESULT" != "approved|1|1|99" ]]; then
+  echo "Concurrencia de aprobación inconsistente: $APPROVAL_RESULT" >&2
+  exit 1
+fi
+
+echo "PASS: solo una aprobación ganó, un token consumido y un solo débito"
 echo "== Pruebas de base de datos completadas =="

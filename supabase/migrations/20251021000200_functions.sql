@@ -133,7 +133,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_settings public.program_settings%rowtype;
+  v_settings public.program_settings;
 begin
   if auth.uid() is null then
     raise exception 'not_authenticated';
@@ -333,7 +333,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_purchase public.purchases%rowtype;
+  v_purchase public.purchases;
   v_points integer;
   v_unit integer;
   v_max integer;
@@ -439,11 +439,11 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_reward public.rewards%rowtype;
+  v_reward public.rewards;
   v_balance bigint;
   v_code text;
   v_redemption_id uuid;
-  v_existing public.redemptions%rowtype;
+  v_existing public.redemptions;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -547,7 +547,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_settings public.program_settings%rowtype;
+  v_settings public.program_settings;
   v_token text;
   v_purchase_id uuid;
   v_expires_at timestamptz;
@@ -628,7 +628,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_purchase public.purchases%rowtype;
+  v_purchase public.purchases;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if v_uid is null then raise exception 'not_authenticated'; end if;
@@ -942,7 +942,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_code text;
-  v_redemption public.redemptions%rowtype;
+  v_redemption public.redemptions;
 begin
   if v_uid is null then raise exception 'not_authenticated'; end if;
   if not public.is_staff() then raise exception 'forbidden'; end if;
@@ -983,7 +983,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_redemption public.redemptions%rowtype;
+  v_redemption public.redemptions;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
 begin
   if v_uid is null then raise exception 'not_authenticated'; end if;
@@ -1046,7 +1046,7 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_settings public.program_settings%rowtype;
+  v_settings public.program_settings;
   v_result jsonb;
 begin
   if auth.uid() is null then raise exception 'not_authenticated'; end if;
@@ -1068,8 +1068,8 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_before public.program_settings%rowtype;
-  v_after public.program_settings%rowtype;
+  v_before public.program_settings;
+  v_after public.program_settings;
 begin
   if v_uid is null then raise exception 'not_authenticated'; end if;
   if not public.has_role('admin') then raise exception 'forbidden'; end if;

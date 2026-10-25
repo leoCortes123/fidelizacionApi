@@ -270,12 +270,12 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_reward public.rewards%rowtype;
-  v_customer public.profiles%rowtype;
+  v_reward public.rewards;
+  v_customer public.profiles;
   v_balance bigint;
   v_code text;
   v_redemption_id uuid;
-  v_existing public.redemptions%rowtype;
+  v_existing public.redemptions;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_created_at timestamptz := now();
 begin
@@ -402,7 +402,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_uid uuid := auth.uid();
-  v_redemption public.redemptions%rowtype;
+  v_redemption public.redemptions;
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_balance bigint;
 begin

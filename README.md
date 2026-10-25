@@ -16,14 +16,16 @@ pública, y toda la lógica sensible se ejecuta dentro de PostgreSQL.
 
 ## Qué contiene
 
-- **Esquema:** perfiles, roles, configuración, compras, recompensas, canjes, libro
-  de puntos, auditoría, historial de configuración y rate limiting.
-- **RPC:** reclamo atómico de compras, canje administrativo, anulación con
-  devolución, configuración, roles y reportes.
-- **RLS:** permisos por usuario y rol, sin escrituras directas del cliente.
-- **Semilla:** configuración inicial y catálogo de recompensas.
-- **Pruebas SQL:** RLS, RPC, idempotencia, saldo no negativo, triggers y
-  concurrencia real con PostgreSQL efímero.
+- **Esquema multiempresa:** negocios, membresías por negocio, productos, programas,
+  recompensas, cuentas, libro de puntos, redenciones con QR, perfil económico,
+  eventos de compra, auditoría, campañas y snapshots.
+- **RPC:** registro de negocio, roles, programa, carta, recompensas, acumulación,
+  reverso, solicitud/aprobación/entrega de canjes, campañas, vencimiento FIFO y
+  snapshots.
+- **RLS:** aislamiento por `business_id` y membresía, sin escrituras directas.
+- **Semilla:** configuración y catálogo legacy.
+- **Pruebas SQL:** 20 casos de aceptación, RLS, límites, idempotencia, saldo no
+  negativo y concurrencia real con PostgreSQL efímero.
 
 ## Estructura
 
@@ -34,9 +36,11 @@ supabase/
   seed.sql              configuración y catálogo inicial
 tests/db/
   setup.sql             stub de auth/roles y utilidades de aserción
-  run-tests.sql         pruebas de integración y seguridad
+  run-tests.sql         pruebas legacy de integración y seguridad
+  loyalty-phase0-tests.sql  cobertura detallada del módulo multiempresa
+  loyalty-tests.sql     20 casos de aceptación de punta a punta
 scripts/
-  test-db.sh            PostgreSQL 16 efímero en Docker + migraciones + pruebas
+  test-db.sh            PostgreSQL 16 efímero + migraciones + pruebas + concurrencia
 ```
 
 ## Requisitos
@@ -113,10 +117,10 @@ El script:
 1. levanta PostgreSQL 16 en un contenedor efímero;
 2. crea el stub de `auth` y los roles de Supabase;
 3. aplica todas las migraciones y la semilla;
-4. ejecuta las aserciones SQL y la prueba de concurrencia.
+4. ejecuta las aserciones SQL, los 20 casos de aceptación y dos pruebas de
+   concurrencia (reclamo de QR y aprobación de canje).
 
-Resultado esperado: **89 aserciones** y la prueba de dos reclamos simultáneos en
-verde.
+Resultado esperado: **275 aserciones** y **2 pruebas de concurrencia** en verde.
 
 ## Seguridad
 
@@ -146,5 +150,8 @@ en un proyecto de staging.
 ## Pendientes conocidos
 
 - La verificación de correo está desactivada en la etapa actual.
-- El vencimiento de puntos es manual; no hay cron por defecto.
+- El vencimiento y los snapshots usan `pg_cron` si está disponible; si no, se
+  ejecutan manualmente o con un programador externo.
+- Las funciones `SECURITY DEFINER` rechazan llamadas sin sesión, pero conservan
+  `EXECUTE` para `anon` por los privilegios por defecto de Supabase.
 - La anulación de canjes exige rol admin y queda auditada, sin segunda aprobación.
