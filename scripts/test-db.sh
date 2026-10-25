@@ -55,6 +55,9 @@ echo "== Pruebas de integración =="
 echo "== Pruebas Fase 0 (multiempresa, roles, QR y acumulación) =="
 "${PSQL[@]}" < tests/db/loyalty-phase0-tests.sql
 
+echo "== Pruebas del flujo de venta con QR por negocio =="
+"${PSQL[@]}" < tests/db/purchase-qr-tests.sql
+
 echo "== Pruebas de aceptación Fase 7 (20 casos) =="
 "${PSQL[@]}" < tests/db/loyalty-tests.sql
 
@@ -144,6 +147,90 @@ if [[ "$CLAIMED" != "1" || "$LEDGER" != "1" ]]; then
 fi
 
 echo "PASS: solo un reclamo ganó y se acreditó una sola vez"
+
+echo "== Prueba de concurrencia: dos clientes escanean el mismo QR =="
+"${PSQL[@]}" <<'SQL'
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('40000000-0000-4000-8000-000000000001', 'qr-conc-admin@example.test', '{"full_name":"Admin QR Concurrencia"}'),
+  ('40000000-0000-4000-8000-000000000002', 'qr-conc-a@example.test', '{"full_name":"Cliente QR A"}'),
+  ('40000000-0000-4000-8000-000000000003', 'qr-conc-b@example.test', '{"full_name":"Cliente QR B"}');
+SQL
+
+QR_TOKEN="$("${PSQL[@]}" -tA <<'SQL' | tail -n1
+set role authenticated;
+select set_config('request.jwt.claim.sub', '40000000-0000-4000-8000-000000000001', false);
+select r->>'business_id' as biz
+  from (select public.business_register('Venta QR Concurrencia', 'venta-qr-concurrencia') as r) s \gset
+select public.loyalty_program_configure(
+  :'biz'::uuid, 1000, 100, 365, 0.01, 0, 0, 0, 24, true
+);
+select public.purchase_qr_create(:'biz'::uuid, 25000)->>'token';
+SQL
+)"
+
+if [[ -z "$QR_TOKEN" ]]; then
+  echo "No se pudo generar el QR de concurrencia" >&2
+  exit 1
+fi
+
+QR_A_LOG="$TMP_DIR/qr-claim-a.log"
+QR_B_LOG="$TMP_DIR/qr-claim-b.log"
+
+(
+  docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+    set role authenticated;
+    select set_config('request.jwt.claim.sub', '40000000-0000-4000-8000-000000000002', false);
+    select public.purchase_qr_claim('$QR_TOKEN');
+    select pg_sleep(2);
+  " >"$QR_A_LOG" 2>&1
+) &
+QR_A_PID=$!
+
+sleep 0.7
+
+set +e
+docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+  set role authenticated;
+  select set_config('request.jwt.claim.sub', '40000000-0000-4000-8000-000000000003', false);
+  select public.purchase_qr_claim('$QR_TOKEN');
+" >"$QR_B_LOG" 2>&1
+QR_B_STATUS=$?
+set -e
+
+wait "$QR_A_PID"
+QR_A_STATUS=$?
+
+if [[ $QR_A_STATUS -ne 0 ]]; then
+  echo "El primer cliente debía ganar el QR, pero falló:" >&2
+  cat "$QR_A_LOG" >&2
+  exit 1
+fi
+
+if [[ $QR_B_STATUS -eq 0 ]]; then
+  echo "El segundo cliente debía fallar, pero triunfó:" >&2
+  cat "$QR_B_LOG" >&2
+  exit 1
+fi
+
+if ! grep -q "purchase_already_claimed" "$QR_B_LOG"; then
+  echo "El segundo cliente falló con un error inesperado:" >&2
+  cat "$QR_B_LOG" >&2
+  exit 1
+fi
+
+QR_EVENTS="$("${PSQL[@]}" -tA -c "
+  select count(*)
+    from public.loyalty_purchase_events e
+    join public.purchases p on p.id = e.purchase_id
+   where p.token_hash = encode(extensions.digest('$QR_TOKEN', 'sha256'), 'hex');
+")"
+
+if [[ "$QR_EVENTS" != "1" ]]; then
+  echo "Concurrencia QR inconsistente: eventos=$QR_EVENTS (esperado 1)" >&2
+  exit 1
+fi
+
+echo "PASS: solo un cliente reclamó el QR y se acreditó una sola vez"
 
 echo "== Prueba de concurrencia: dos aprobaciones simultáneas =="
 "${PSQL[@]}" <<'SQL'
