@@ -324,6 +324,51 @@ select tests.expect_error(
 );
 
 -- ---------------------------------------------------------------------
+-- 3b. Filtro de frecuentes y compras manuales en el detalle (F5)
+-- ---------------------------------------------------------------------
+select tests.as_user('60000000-0000-4000-8000-000000000004');
+select public.business_join('taqueria-f4');
+select tests.as_user('60000000-0000-4000-8000-000000000001');
+select public.loyalty_purchase_register(
+  :'biz'::uuid, '60000000-0000-4000-8000-000000000003',
+  5000, 5000, 'f5-manual-0001'
+);
+select public.loyalty_purchase_register(
+  :'biz'::uuid, '60000000-0000-4000-8000-000000000003',
+  5000, 5000, 'f5-manual-0002'
+);
+
+select tests.assert_eq_int(
+  (select count(*) from public.staff_list_customers(
+    p_business_id => :'biz'::uuid, p_only_frequent => true
+  )),
+  1,
+  'el filtro de frecuentes devuelve solo clientes frecuentes'
+);
+select tests.assert_eq_int(
+  (select count(*) from public.staff_list_customers(
+    p_business_id => :'biz'::uuid, p_only_frequent => false
+  )),
+  2,
+  'sin filtro se listan todos los clientes del negocio'
+);
+select tests.assert_eq_int(
+  jsonb_array_length(
+    public.staff_get_customer(
+      '60000000-0000-4000-8000-000000000003', :'biz'::uuid
+    ) -> 'purchases'
+  ),
+  3,
+  'el detalle incluye compras QR y compras manuales'
+);
+select tests.assert(
+  public.staff_get_customer(
+    '60000000-0000-4000-8000-000000000003', :'biz'::uuid
+  ) -> 'purchases' @> jsonb_build_array(jsonb_build_object('source', 'manual')),
+  'el detalle distingue las compras manuales'
+);
+
+-- ---------------------------------------------------------------------
 -- 4. Historial y detalle del cliente
 -- ---------------------------------------------------------------------
 select tests.as_user('60000000-0000-4000-8000-000000000003');
