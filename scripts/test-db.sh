@@ -361,4 +361,131 @@ if [[ "$APPROVAL_RESULT" != "approved|1|1|99" ]]; then
 fi
 
 echo "PASS: solo una aprobación ganó, un token consumido y un solo débito"
+
+echo "== Prueba de concurrencia: dos escaneos simultáneos del mismo QR =="
+"${PSQL[@]}" <<'SQL'
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('50000000-0000-4000-8000-000000000001', 'scan-conc-dueno@example.test', '{"full_name":"Dueño Scan"}'),
+  ('50000000-0000-4000-8000-000000000002', 'scan-conc-enc1@example.test', '{"full_name":"Encargado Scan Uno"}'),
+  ('50000000-0000-4000-8000-000000000003', 'scan-conc-enc2@example.test', '{"full_name":"Encargado Scan Dos"}'),
+  ('50000000-0000-4000-8000-000000000004', 'scan-conc-cliente@example.test', '{"full_name":"Cliente Scan"}');
+SQL
+
+SCAN_SETUP="$("${PSQL[@]}" -tA <<'SQL'
+set role authenticated;
+select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000001', false);
+select r->>'business_id' as biz
+  from (
+    select public.business_register('Escaneo Concurrencia', 'escaneo-concurrencia') as r
+  ) s \gset
+select public.business_membership_create(
+  :'biz'::uuid, '50000000-0000-4000-8000-000000000002', 'encargado', true
+);
+select public.business_membership_create(
+  :'biz'::uuid, '50000000-0000-4000-8000-000000000003', 'encargado', true
+);
+select public.business_membership_create(
+  :'biz'::uuid, '50000000-0000-4000-8000-000000000004', 'cliente', false
+);
+select public.loyalty_program_configure(
+  :'biz'::uuid, 1000, 100, 365, 0.01, 0, 0, 0, 24, true
+);
+select public.loyalty_reward_upsert(
+  :'biz'::uuid, 'fixed_discount', 'Canje escaneado concurrencia', 10,
+  null, null, '', 2000, 1000
+);
+select public.loyalty_purchase_register(
+  :'biz'::uuid, '50000000-0000-4000-8000-000000000004', 100000, 100000, 'scan-concurrencia-compra-0001'
+);
+select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000004', false);
+select r->>'token' as scan_token,
+       r->>'redemption_id' as scan_redemption
+  from (
+    select public.reward_request_redemption(
+      :'biz'::uuid,
+      (select id from public.loyalty_rewards
+        where business_id = :'biz'::uuid and name = 'Canje escaneado concurrencia'),
+      'scan-concurrencia-canje-0001'
+    ) as r
+  ) s \gset
+\echo :scan_token :scan_redemption
+SQL
+)"
+
+read -r SCAN_TOKEN SCAN_REDEMPTION <<<"$(echo "$SCAN_SETUP" | tail -n1)"
+if [[ -z "$SCAN_TOKEN" || -z "$SCAN_REDEMPTION" ]]; then
+  echo "No se pudo preparar la concurrencia de escaneos" >&2
+  echo "$SCAN_SETUP" >&2
+  exit 1
+fi
+
+SCAN_A_LOG="$TMP_DIR/scan-a.log"
+SCAN_B_LOG="$TMP_DIR/scan-b.log"
+
+(
+  docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+    set role authenticated;
+    select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000002', false);
+    begin;
+    select public.redemption_redeem_by_token('$SCAN_TOKEN');
+    select pg_sleep(2);
+    commit;
+  " >"$SCAN_A_LOG" 2>&1
+) &
+SCAN_A_PID=$!
+
+sleep 0.7
+
+set +e
+docker exec -i "$CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -tA -c "
+  set role authenticated;
+  select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000003', false);
+  select public.redemption_redeem_by_token('$SCAN_TOKEN');
+" >"$SCAN_B_LOG" 2>&1
+SCAN_B_STATUS=$?
+set -e
+
+wait "$SCAN_A_PID"
+SCAN_A_STATUS=$?
+
+if [[ $SCAN_A_STATUS -ne 0 ]]; then
+  echo "El primer escaneo debía ganar, pero falló:" >&2
+  cat "$SCAN_A_LOG" >&2
+  exit 1
+fi
+
+if [[ $SCAN_B_STATUS -eq 0 ]]; then
+  echo "El segundo escaneo debía fallar, pero triunfó:" >&2
+  cat "$SCAN_B_LOG" >&2
+  exit 1
+fi
+
+if ! grep -q "redemption_already_delivered" "$SCAN_B_LOG"; then
+  echo "El segundo escaneo falló con un error inesperado:" >&2
+  cat "$SCAN_B_LOG" >&2
+  exit 1
+fi
+
+SCAN_RESULT="$("${PSQL[@]}" -tA -c "
+  select r.status::text || '|' || r.origin || '|' ||
+         (select count(*) from public.business_audit_logs
+           where business_id = r.business_id
+             and operation = 'redemption.scanned'
+             and entity_id = r.id::text) || '|' ||
+         (select count(*) from public.loyalty_redemption_tokens
+           where redemption_id = r.id and consumed_at is not null) || '|' ||
+         (select balance from public.loyalty_point_accounts
+           where business_id = r.business_id
+             and customer_id = '50000000-0000-4000-8000-000000000004')
+    from public.loyalty_redemptions r
+   where r.id = '$SCAN_REDEMPTION'::uuid;
+")"
+
+if [[ "$SCAN_RESULT" != "delivered|qr_scan|1|1|90" ]]; then
+  echo "Concurrencia de escaneo inconsistente: $SCAN_RESULT" >&2
+  exit 1
+fi
+
+echo "PASS: solo un escaneo entregó, un token consumido y una sola auditoría"
+
 echo "== Pruebas de base de datos completadas =="
