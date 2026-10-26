@@ -61,6 +61,9 @@ echo "== Pruebas del flujo de venta con QR por negocio =="
 echo "== Pruebas de aceptación Fase 7 (20 casos) =="
 "${PSQL[@]}" < tests/db/loyalty-tests.sql
 
+echo "== Pruebas Loopoint F2 (identidad, negocio, logo y frecuencia) =="
+"${PSQL[@]}" < tests/db/loopoint-tests.sql
+
 echo "== Prueba de concurrencia: dos reclamos simultáneos =="
 "${PSQL[@]}" <<'SQL'
 insert into auth.users (id, email, raw_user_meta_data) values

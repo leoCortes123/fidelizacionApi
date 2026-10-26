@@ -46,7 +46,8 @@ redirect_uri = "http://127.0.0.1:54321/auth/v1/callback"
 skip_nonce_check = true
 
 [storage]
-enabled = false
+enabled = true
+file_size_limit = "2MiB"
 
 [edge_runtime]
 enabled = false
