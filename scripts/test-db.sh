@@ -73,6 +73,9 @@ echo "== Pruebas Loopoint F6 (canje escaneado por QR) =="
 echo "== Pruebas Loopoint F7 (portal del cliente multi-negocio) =="
 "${PSQL[@]}" < tests/db/loopoint-f7-tests.sql
 
+echo "== Pruebas Loopoint F8 (auditoría legible y filtros) =="
+"${PSQL[@]}" < tests/db/loopoint-f8-tests.sql
+
 echo "== Prueba de concurrencia: dos reclamos simultáneos =="
 "${PSQL[@]}" <<'SQL'
 insert into auth.users (id, email, raw_user_meta_data) values
