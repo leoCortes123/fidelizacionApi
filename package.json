@@ -2,7 +2,7 @@
   "name": "fidelizacion-api",
   "private": true,
   "version": "1.0.0",
-  "description": "Backend de fidelización sobre Supabase: esquema, RPC, RLS, migraciones y pruebas SQL.",
+  "description": "Backend de fidelizaci\u00f3n sobre Supabase: esquema, RPC, RLS, migraciones y pruebas SQL.",
   "type": "module",
   "scripts": {
     "db:start": "npx supabase start",
@@ -12,7 +12,8 @@
     "db:diff": "npx supabase db diff",
     "db:status": "npx supabase status",
     "test": "bash scripts/test-db.sh",
-    "test:db": "bash scripts/test-db.sh"
+    "test:db": "bash scripts/test-db.sh",
+    "gen:types": "npx supabase gen types typescript --local > ../fidelizacionWeb/src/types/database.ts"
   },
   "engines": {
     "node": ">=22"

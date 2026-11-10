@@ -105,14 +105,63 @@ select tests.assert_eq_text(
   'la auditoría resuelve el nombre del actor desde el perfil'
 );
 
-select tests.assert_eq_text(
+-- El orden es descendente por created_at. En lugar de apostar por cuál de
+-- business_register / business_membership_create se ejecuta última (ambos
+-- escriben su fila de auditoría con el mismo segundo), comprobamos el orden
+-- entre las filas con timestamp explícito, que sí es determinista.
+-- business.profile_updated (10 min) > campaign.created (30 min) > redemption.delivered (1h) > purchase.registered (2h)
+select tests.assert(
   (
-    select operation
+    select created_at
       from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'business.profile_updated'
+     limit 1
+  ) >
+  (
+    select created_at
+      from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'campaign.created'
+     limit 1
+  )
+  and
+  (
+    select created_at
+      from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'campaign.created'
+     limit 1
+  ) >
+  (
+    select created_at
+      from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'redemption.delivered'
+     limit 1
+  )
+  and
+  (
+    select created_at
+      from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'redemption.delivered'
+     limit 1
+  ) >
+  (
+    select created_at
+      from public.business_audit_log_page(:'biz'::uuid)
+     where operation = 'purchase.registered'
      limit 1
   ),
-  'membership.created',
-  'las operaciones se ordenan de la más reciente a la más antigua'
+  'las operaciones con timestamp fijo vienen en orden descendente'
+);
+
+select tests.assert_eq_text(
+  (select operation from public.business_audit_log_page(:'biz'::uuid) where operation = 'business.profile_updated' limit 1),
+  'business.profile_updated',
+  'la fila business.profile_updated (10 min) es más reciente que campaign.created (30 min)'
+);
+
+select tests.assert(
+  (select (select count(*) from public.business_audit_log_page(:'biz'::uuid, 'business.profile_updated')) >= 1
+     and (select count(*) from public.business_audit_log_page(:'biz'::uuid, 'purchase.registered')) >= 1),
+  'ambas filas de referencia siguen presentes'
 );
 
 -- =====================================================================
