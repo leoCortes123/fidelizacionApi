@@ -270,6 +270,44 @@ select tests.assert_eq_int(
 );
 
 -- =====================================================================
+-- 4.b. Recompensas disponibles por negocio (sin ambigüedad en balance)
+-- =====================================================================
+select tests.as_user('80000000-0000-4000-8000-000000000002');
+select tests.assert_eq_int(
+  (select count(*) from public.loyalty_rewards_available(:'biz1'::uuid, '80000000-0000-4000-8000-000000000002')),
+  1,
+  'el cliente puede consultar recompensas disponibles en biz1'
+);
+select tests.assert_eq_int(
+  (select balance from public.loyalty_rewards_available(:'biz1'::uuid, '80000000-0000-4000-8000-000000000002') limit 1),
+  20,
+  'el balance proyectado coincide tras el canje'
+);
+select tests.assert_eq_int(
+  (select count(*) from public.loyalty_rewards_available(:'biz3'::uuid, '80000000-0000-4000-8000-000000000002')),
+  0,
+  'en biz3 no hay recompensas activas'
+);
+-- Cliente no ve el costo interno del producto
+select tests.assert(
+  (select product_cost_cop is null from public.loyalty_rewards_available(:'biz1'::uuid, '80000000-0000-4000-8000-000000000002') limit 1),
+  'el cliente no recibe el costo interno product_cost_cop'
+);
+
+-- Admin del negocio puede consultar el saldo y ve el costo interno
+select tests.as_user('80000000-0000-4000-8000-000000000001');
+select tests.assert_eq_int(
+  (select count(*) from public.loyalty_rewards_available(:'biz1'::uuid, '80000000-0000-4000-8000-000000000002')),
+  1,
+  'el admin puede consultar recompensas disponibles de un cliente'
+);
+select tests.assert_eq_int(
+  (select balance from public.loyalty_rewards_available(:'biz1'::uuid, '80000000-0000-4000-8000-000000000002') limit 1),
+  20,
+  'el admin ve el balance correcto del cliente'
+);
+
+-- =====================================================================
 -- 5. Permisos
 -- =====================================================================
 select set_config('request.jwt.claim.sub', '', true);
@@ -286,6 +324,10 @@ select tests.expect_error(
 );
 select tests.expect_error(
   $$select * from public.loyalty_my_redemptions(100, 0)$$,
+  'permission denied'
+);
+select tests.expect_error(
+  format($$select * from public.loyalty_rewards_available(%L::uuid, '80000000-0000-4000-8000-000000000002')$$, :'biz1'),
   'permission denied'
 );
 reset role;
