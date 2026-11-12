@@ -572,15 +572,15 @@ select tests.assert_eq_int(
   'ninguna función privada es ejecutable por PUBLIC'
 );
 
--- `anon` solo puede ejecutar las dos funciones públicas de lectura.
+-- `anon` solo puede ejecutar las tres funciones públicas de lectura/vista previa.
 select tests.assert_eq_int(
   (select count(*)
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public'
       and has_function_privilege('anon', p.oid, 'execute')),
-  2,
-  'anon solo puede ejecutar business_public_get y purchase_qr_preview'
+  3,
+  'anon solo puede ejecutar business_public_get, purchase_qr_preview y business_member_invite_preview'
 );
 select tests.assert(
   (select has_function_privilege('anon',
@@ -591,6 +591,11 @@ select tests.assert(
   (select has_function_privilege('anon',
      'public.purchase_qr_preview(text)'::regprocedure, 'execute')),
   'anon puede ver la vista previa de la compra'
+);
+select tests.assert(
+  (select has_function_privilege('anon',
+     'public.business_member_invite_preview(text)'::regprocedure, 'execute')),
+  'anon puede ver la vista previa de la invitación QR'
 );
 
 -- Las RPC nuevas de Loopoint son de `authenticated`, no de `anon`.

@@ -15,7 +15,7 @@
 - Migraciones aditivas; no editar las ya aplicadas.
 - Toda escritura sensible en RPC `SECURITY DEFINER` con RLS.
 - Importes en COP como `integer`; fechas `timestamptz`.
-- Hardening de grants: `anon` solo `business_public_get` y `purchase_qr_preview`.
+- Hardening de grants: `anon` solo `business_public_get`, `purchase_qr_preview` y `business_member_invite_preview`.
 
 ## Contexto
 - Esquema: `../documentacion/ai/schema-summary.md`.
