@@ -75,6 +75,202 @@ select tests.assert_eq_text(
   'products_list devuelve el tipo simple'
 );
 
+-- Foto de producto: INSERT con image_url, esquema en mayúsculas, validaciones y limpieza.
+select tests.assert_eq_text(
+  (public.product_upsert(
+    :'biz'::uuid,
+    3000,
+    'Flauta con foto',
+    null,
+    'Con queso',
+    900,
+    false,
+    'simple',
+    format('HTTPS://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/products/flauta.webp', :'biz')
+  )->>'image_url'),
+  format('HTTPS://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/products/flauta.webp', :'biz'),
+  'product_upsert devuelve image_url al insertar'
+);
+
+select public.product_upsert(
+  :'biz'::uuid,
+  2500,
+  'Taco de guisado',
+  :'taco'::uuid,
+  'Taco individual',
+  800,
+  true,
+  'simple',
+  format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/products/taco.webp', :'biz')
+);
+
+select tests.assert_eq_text(
+  (select image_url from public.products_list(:'biz'::uuid, false)
+    where id = :'taco'::uuid),
+  format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/products/taco.webp', :'biz'),
+  'products_list devuelve la image_url guardada'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', 'https://evil.example/taco.png')$$,
+    :'biz', :'taco'
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', 'https://demo.supabase.co/storage/v1/object/public/business-assets/business/00000000-0000-4000-8000-000000009999/products/taco.webp')$$,
+    :'biz', :'taco'
+  ),
+  'product_image_outside_business'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://evil.com?/storage/v1/object/public/business-assets/business/%s/a.webp', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://evil.com#/storage/v1/object/public/business-assets/business/%s/a.webp', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co@evil.com/storage/v1/object/public/business-assets/business/%s/a.webp', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/taco.webp?foo=bar', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/taco.webp#frag', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/../secret.webp', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/%%2e%%2e/secret.webp', :'biz')
+  ),
+  'invalid_product_image_url'
+);
+
+select tests.expect_error(
+  format(
+    $$select public.product_upsert(%L::uuid, 2500, 'Taco de guisado', %L::uuid, 'Taco individual', 800, true, 'simple', %L)$$,
+    :'biz', :'taco',
+    format('https://demo.supabase.co/storage/v1/object/public/business-assets/business/%s/%s.webp', :'biz', repeat('a', 430))
+  ),
+  'invalid_product_image_url'
+);
+
+select public.product_upsert(
+  :'biz'::uuid,
+  2500,
+  'Taco de guisado',
+  :'taco'::uuid,
+  'Taco individual',
+  800,
+  true,
+  'simple',
+  '   '
+);
+
+select tests.assert(
+  (select image_url is null from public.products_list(:'biz'::uuid, false)
+    where id = :'taco'::uuid),
+  'product_upsert permite limpiar image_url con cadena vacía o espacios'
+);
+
+select tests.as_user('60000000-0000-4000-8000-000000000003');
+select tests.expect_error(
+  format($$select * from public.products_list(%L::uuid, false)$$, :'biz'),
+  'forbidden'
+);
+
+reset role;
+select tests.assert(
+  not has_function_privilege(
+    'anon',
+    'public.product_upsert(uuid, integer, text, uuid, text, integer, boolean, text, text)'::regprocedure,
+    'execute'
+  ),
+  'anon no puede ejecutar product_upsert de 9 argumentos'
+);
+select tests.assert(
+  not has_function_privilege(
+    'public',
+    'public.product_upsert(uuid, integer, text, uuid, text, integer, boolean, text, text)'::regprocedure,
+    'execute'
+  ),
+  'public no puede ejecutar product_upsert de 9 argumentos'
+);
+select tests.assert(
+  has_function_privilege(
+    'authenticated',
+    'public.product_upsert(uuid, integer, text, uuid, text, integer, boolean, text, text)'::regprocedure,
+    'execute'
+  ),
+  'authenticated puede ejecutar product_upsert de 9 argumentos'
+);
+select tests.assert(
+  has_function_privilege(
+    'service_role',
+    'public.product_upsert(uuid, integer, text, uuid, text, integer, boolean, text, text)'::regprocedure,
+    'execute'
+  ),
+  'service_role puede ejecutar product_upsert de 9 argumentos'
+);
+select tests.assert(
+  not has_function_privilege(
+    'anon',
+    'public.products_list(uuid, boolean)'::regprocedure,
+    'execute'
+  ) and not has_function_privilege(
+    'public',
+    'public.products_list(uuid, boolean)'::regprocedure,
+    'execute'
+  ),
+  'anon y public no pueden ejecutar products_list'
+);
+set local role authenticated;
+select tests.as_user('60000000-0000-4000-8000-000000000001');
+
 select tests.expect_error(
   format(
     $$select public.product_combo_set(%L::uuid, %L::uuid, '[]'::jsonb)$$,
