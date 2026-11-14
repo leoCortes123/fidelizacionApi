@@ -623,7 +623,7 @@ select tests.assert(
 select tests.assert(
   has_function_privilege(
     'authenticated',
-    'public.profile_update(text, text)',
+    'public.profile_update(text, text, text, date, boolean)',
     'execute'
   ),
   'authenticated ejecuta profile_update'
