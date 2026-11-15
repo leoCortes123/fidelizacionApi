@@ -222,6 +222,11 @@ select tests.expect_error(
   format($$select * from public.products_list(%L::uuid, false)$$, :'biz'),
   'forbidden'
 );
+select tests.assert(
+  (select count(*) >= 3 and bool_and(cost_cop is null and is_active)
+     from public.products_list(:'biz'::uuid, true)),
+  'cliente miembro puede consultar products_list(biz, true) sin ver cost_cop'
+);
 
 reset role;
 select tests.assert(
